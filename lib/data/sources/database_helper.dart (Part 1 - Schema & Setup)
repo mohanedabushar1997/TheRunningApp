@@ -1,0 +1,329 @@
+import 'dart:async';
+import 'dart:convert'; // For JSON encoding/decoding if storing complex types as text
+import 'dart:io';
+import 'package:csv/csv.dart'; // For CSV Export/Import
+import 'package:path/path.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:running_app/data/models/route_point.dart';
+import 'package:running_app/data/models/training_plan.dart';
+import 'package:running_app/data/models/training_session.dart';
+import 'package:running_app/data/models/user_profile.dart';
+import 'package:running_app/data/models/workout.dart';
+import 'package:running_app/utils/logger.dart';
+import 'package:sqflite/sqflite.dart';
+import 'package:share_plus/share_plus.dart'; // For sharing backup file
+import 'package:file_picker/file_picker.dart'; // For restoring backup file
+import 'package:archive/archive_io.dart'; // For zipping/unzipping backup
+
+class DatabaseHelper {
+  static const _databaseName = "RunningAppFitStride.db"; // Updated name
+  // Increment version whenever schema changes
+  // Version 1: Initial Schema (with userId)
+  // Version 2: Added elevationGain/Loss to Workouts, Added Training Plan/Session tables
+  // Version 3: Changed userId to deviceId, added indices
+  static const _databaseVersion = 3;
+
+  // Table names
+  static const tableWorkouts = 'workouts';
+  static const tableRoutePoints = 'route_points';
+  static const tableUserProfile = 'user_profile';
+  static const tableTrainingPlans = 'training_plans';
+  static const tableTrainingSessions = 'training_sessions';
+  static const tableSettings = 'app_settings'; // For non-sensitive settings backup
+  // TODO: Add tables for weight records, achievements etc. if needed
+  // static const tableWeightRecords = 'weight_records';
+  // static const tableAchievements = 'achievements';
+
+
+  // --- Column Names ---
+
+  // Common
+  static const columnId = '_id'; // Standard primary key convention for sqflite
+
+  // Workout table columns
+  static const columnWorkoutId = 'workout_id'; // Actual Workout object ID (UUID/String)
+  static const columnDeviceId = 'device_id'; // Replaces userId
+  static const columnDate = 'date';
+  static const columnDistance = 'distance';
+  static const columnDurationSeconds = 'duration_seconds';
+  static const columnPace = 'pace';
+  static const columnWorkoutType = 'workoutType';
+  static const columnStatus = 'status';
+  static const columnCaloriesBurned = 'caloriesBurned';
+  static const columnElevationGain = 'elevationGain'; // Added in v2
+  static const columnElevationLoss = 'elevationLoss'; // Added in v2
+  // TODO: Add column for intervals JSON? static const columnIntervalsJson = 'intervals_json';
+
+  // RoutePoints table columns
+  static const columnPointWorkoutId = 'workout_id'; // Foreign key to workouts table (workout_id)
+  static const columnLatitude = 'latitude';
+  static const columnLongitude = 'longitude';
+  static const columnAltitude = 'altitude';
+  static const columnSpeed = 'speed';
+  static const columnAccuracy = 'accuracy';
+  static const columnHeading = 'heading';
+  static const columnTimestamp = 'timestamp';
+
+  // UserProfile table columns
+  static const columnProfileDeviceId = 'device_id'; // Use device_id as PK (Changed in v3)
+  static const columnName = 'name';
+  static const columnEmail = 'email'; // Kept, but may not be used without auth
+  static const columnWeight = 'weight';
+  static const columnHeight = 'height';
+  static const columnBirthDate = 'birthDate';
+  static const columnUseImperial = 'useImperial';
+  // TODO: Add gender, etc. if needed
+
+   // Training Plan columns
+   static const columnPlanId = 'plan_id'; // PK
+   static const columnPlanName = 'plan_name';
+   static const columnPlanDescription = 'plan_description';
+   static const columnPlanDifficulty = 'plan_difficulty';
+   static const columnPlanDurationWeeks = 'plan_duration_weeks';
+   // TODO: Add target race distance, type etc.
+
+   // Training Session columns
+   static const columnSessionId = 'session_id'; // PK
+   static const columnSessionPlanId = 'plan_id'; // FK to Training Plan
+   static const columnSessionWeek = 'session_week';
+   static const columnSessionDay = 'session_day';
+   static const columnSessionDescription = 'session_description';
+   static const columnSessionType = 'session_type';
+   static const columnSessionDuration = 'session_duration_seconds';
+   static const columnSessionDistance = 'session_distance_meters';
+   static const columnSessionCompleted = 'session_completed'; // 0 or 1
+
+   // Settings table columns (Example)
+   static const columnSettingKey = 'key'; // PK
+   static const columnSettingValue = 'value';
+
+
+  // Singleton instance
+  DatabaseHelper._privateConstructor();
+  static final DatabaseHelper instance = DatabaseHelper._privateConstructor();
+
+  static Database? _database;
+  static String? _dbPath; // Store path for backup/restore
+
+  Future<Database> get database async {
+    if (_database != null) return _database!;
+    _database = await _initDatabase();
+    return _database!;
+  }
+
+  Future<String> get databasePath async {
+     if (_dbPath != null) return _dbPath!;
+      Directory documentsDirectory = await getApplicationDocumentsDirectory();
+      _dbPath = join(documentsDirectory.path, _databaseName);
+      return _dbPath!;
+  }
+
+  Future<Database> _initDatabase() async {
+    Log.d("Initializing database...");
+    String path = await databasePath;
+    Log.d("Database path: $path");
+    return await openDatabase(
+      path,
+      version: _databaseVersion,
+      onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
+      onDowngrade: onDatabaseDowngradeDelete, // Handle downgrades by deleting
+       // Enable Foreign Key support
+       singleInstance: true, // Ensure single instance across isolates if needed
+       onConfigure: (db) async {
+          await db.execute('PRAGMA foreign_keys = ON');
+           Log.i("Foreign key support enabled.");
+       },
+    );
+  }
+
+  // SQL code to create the database tables (Latest Schema - v3)
+  Future _onCreate(Database db, int version) async {
+    Log.i("Creating database tables (Version $version)...");
+    await db.execute('''
+      CREATE TABLE $tableWorkouts (
+        $columnId INTEGER PRIMARY KEY AUTOINCREMENT,
+        $columnWorkoutId TEXT UNIQUE NOT NULL,
+        $columnDeviceId TEXT NOT NULL,
+        $columnDate TEXT NOT NULL,
+        $columnDistance REAL NOT NULL,
+        $columnDurationSeconds INTEGER NOT NULL,
+        $columnPace REAL,
+        $columnWorkoutType TEXT NOT NULL,
+        $columnStatus TEXT NOT NULL,
+        $columnCaloriesBurned INTEGER,
+        $columnElevationGain REAL,
+        $columnElevationLoss REAL
+        -- $columnIntervalsJson TEXT -- TODO: Add if storing intervals as JSON
+      )
+    ''');
+     await db.execute('CREATE INDEX idx_workout_device_id ON $tableWorkouts ($columnDeviceId)');
+     await db.execute('CREATE INDEX idx_workout_date ON $tableWorkouts ($columnDate)');
+     Log.d("Table '$tableWorkouts' and indices created.");
+
+    await db.execute('''
+      CREATE TABLE $tableRoutePoints (
+        $columnId INTEGER PRIMARY KEY AUTOINCREMENT,
+        $columnPointWorkoutId TEXT NOT NULL,
+        $columnLatitude REAL NOT NULL,
+        $columnLongitude REAL NOT NULL,
+        $columnAltitude REAL,
+        $columnSpeed REAL,
+        $columnAccuracy REAL,
+        $columnHeading REAL,
+        $columnTimestamp TEXT NOT NULL,
+        FOREIGN KEY ($columnPointWorkoutId) REFERENCES $tableWorkouts ($columnWorkoutId) ON DELETE CASCADE
+      )
+    ''');
+     await db.execute('CREATE INDEX idx_point_workout_id ON $tableRoutePoints ($columnPointWorkoutId)');
+     Log.d("Table '$tableRoutePoints' and index created.");
+
+
+    await db.execute('''
+      CREATE TABLE $tableUserProfile (
+        $columnProfileDeviceId TEXT PRIMARY KEY,
+        $columnName TEXT,
+        $columnEmail TEXT,
+        $columnWeight REAL,
+        $columnHeight REAL,
+        $columnBirthDate TEXT,
+        $columnUseImperial INTEGER DEFAULT 0
+      )
+    ''');
+     Log.d("Table '$tableUserProfile' created.");
+
+      await db.execute('''
+         CREATE TABLE $tableTrainingPlans (
+           $columnPlanId TEXT PRIMARY KEY,
+           $columnPlanName TEXT NOT NULL,
+           $columnPlanDescription TEXT,
+           $columnPlanDifficulty TEXT,
+           $columnPlanDurationWeeks INTEGER
+         )
+       ''');
+      Log.d("Table '$tableTrainingPlans' created.");
+
+       await db.execute('''
+         CREATE TABLE $tableTrainingSessions (
+           $columnSessionId TEXT PRIMARY KEY,
+           $columnSessionPlanId TEXT NOT NULL,
+           $columnSessionWeek INTEGER NOT NULL,
+           $columnSessionDay INTEGER NOT NULL,
+           $columnSessionDescription TEXT,
+           $columnSessionType TEXT,
+           $columnSessionDuration INTEGER,
+           $columnSessionDistance REAL,
+           $columnSessionCompleted INTEGER DEFAULT 0,
+           FOREIGN KEY ($columnSessionPlanId) REFERENCES $tableTrainingPlans ($columnPlanId) ON DELETE CASCADE
+         )
+       ''');
+       await db.execute('CREATE INDEX idx_session_plan_id ON $tableTrainingSessions ($columnSessionPlanId)');
+       Log.d("Table '$tableTrainingSessions' and index created.");
+
+      // Settings Table
+      await db.execute('''
+        CREATE TABLE $tableSettings (
+          $columnSettingKey TEXT PRIMARY KEY,
+          $columnSettingValue TEXT
+        )
+      ''');
+       Log.d("Table '$tableSettings' created.");
+
+     // TODO: Create other tables (Weight, Achievements) here
+     Log.i("Database tables created successfully for version $version.");
+  }
+
+   // Handle database upgrades
+   Future _onUpgrade(Database db, int oldVersion, int newVersion) async {
+     Log.w("Upgrading database from version $oldVersion to $newVersion");
+     // Use batch for multiple operations
+     var batch = db.batch();
+
+     // --- Migrations ---
+     // IMPORTANT: Test migrations thoroughly! Data loss can occur if done incorrectly.
+     // Add migration steps sequentially based on version number.
+
+     if (oldVersion < 2) {
+       Log.i("Applying migration schema v1 -> v2...");
+       try {
+          batch.execute('ALTER TABLE $tableWorkouts ADD COLUMN $columnElevationGain REAL');
+          batch.execute('ALTER TABLE $tableWorkouts ADD COLUMN $columnElevationLoss REAL');
+          // Create new tables added in v2
+          batch.execute('''
+             CREATE TABLE $tableTrainingPlans (
+               $columnPlanId TEXT PRIMARY KEY, $columnPlanName TEXT NOT NULL, $columnPlanDescription TEXT,
+               $columnPlanDifficulty TEXT, $columnPlanDurationWeeks INTEGER
+             )
+          ''');
+           batch.execute('''
+             CREATE TABLE $tableTrainingSessions (
+               $columnSessionId TEXT PRIMARY KEY, $columnSessionPlanId TEXT NOT NULL, $columnSessionWeek INTEGER NOT NULL,
+               $columnSessionDay INTEGER NOT NULL, $columnSessionDescription TEXT, $columnSessionType TEXT,
+               $columnSessionDuration INTEGER, $columnSessionDistance REAL, $columnSessionCompleted INTEGER DEFAULT 0,
+               FOREIGN KEY ($columnSessionPlanId) REFERENCES $tableTrainingPlans ($columnPlanId) ON DELETE CASCADE
+             )
+           ''');
+           batch.execute('CREATE INDEX idx_session_plan_id ON $tableTrainingSessions ($columnSessionPlanId)');
+           batch.execute('''
+              CREATE TABLE $tableSettings ( $columnSettingKey TEXT PRIMARY KEY, $columnSettingValue TEXT )
+           ''');
+
+           Log.i("Migration v1->v2: Added columns and tables.");
+       } catch (e) {
+          Log.e("Error during migration to version 2: $e. Operations might be partially applied.", error: e);
+          // Consider re-throwing or specific error handling
+       }
+     }
+
+      if (oldVersion < 3) {
+          Log.i("Applying migration schema v2 -> v3...");
+          // Change userId to deviceId
+          // WARNING: This is complex. A safer approach might be to create new tables
+          // and copy data, but ALTER + UPDATE is shown here as an example.
+          // This assumes 'userId' column exists from previous versions.
+          try {
+              // 1. Add new deviceId column
+              batch.execute('ALTER TABLE $tableWorkouts ADD COLUMN $columnDeviceId TEXT');
+              Log.d("Migration v2->v3: Added $columnDeviceId to $tableWorkouts.");
+
+              // 2. Add new deviceId PK column to user_profile
+              // Renaming primary keys is difficult. Easier to create new table & copy.
+              // Or, if only one profile is expected, update the existing one's ID? Risky.
+              // Let's assume for this migration we just add the column and will populate it later.
+              // This requires UserProvider to handle fetching the first profile if ID doesn't match.
+              // batch.execute('ALTER TABLE $tableUserProfile ADD COLUMN $columnProfileDeviceId TEXT UNIQUE');
+              // Log.d("Migration v2->v3: Added $columnProfileDeviceId to $tableUserProfile. Needs population!");
+              // Safer: Rename old table, create new, copy data (more complex migration code)
+              Log.w("Migration v2->v3: UserProfile $columnProfileDeviceId migration requires manual handling or more complex logic.");
+
+
+              // 3. Add indices
+              batch.execute('CREATE INDEX IF NOT EXISTS idx_workout_device_id ON $tableWorkouts ($columnDeviceId)');
+              batch.execute('CREATE INDEX IF NOT EXISTS idx_workout_date ON $tableWorkouts ($columnDate)');
+
+              // 4. Optionally: Populate deviceId (e.g., get current deviceId and update all existing records)
+              // String currentDeviceId = await DeviceIdService().getDeviceId(); // Requires service access here? Complex.
+              // batch.execute('UPDATE $tableWorkouts SET $columnDeviceId = ? WHERE $columnDeviceId IS NULL', [currentDeviceId]);
+              // Log.d("Migration v2->v3: Populated $columnDeviceId in $tableWorkouts.");
+
+              // 5. Optionally: Drop old userId column (AFTER data is verified)
+              // batch.execute('ALTER TABLE $tableWorkouts DROP COLUMN $columnUserId'); // Requires newer SQLite versions
+              Log.w("Migration v2->v3: Dropping old userId column is skipped. Can be done manually if needed.");
+
+              Log.i("Migration v2->v3: Basic schema changes applied.");
+          } catch (e) {
+              Log.e("Error during migration to version 3: $e. Operations might be partially applied.", error: e);
+          }
+      }
+
+      // Add more 'if (oldVersion < X)' blocks for future versions...
+
+     try {
+       await batch.commit();
+       Log.i("Database upgrade batch committed successfully.");
+     } catch (e) {
+        Log.e("Error committing database upgrade batch", error: e);
+        // Handle commit error - data might be in inconsistent state
+     }
+   }
+  // --- END OF SETUP ---

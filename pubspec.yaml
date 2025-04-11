@@ -1,0 +1,108 @@
+name: running_app
+description: "A comprehensive running tracker application built with Flutter."
+publish_to: 'none'
+version: 1.0.0+1 # Consider updating version based on changes
+
+environment:
+  # Ensure this matches your Flutter SDK version (e.g., >=3.3.3 or >=3.4.0)
+  sdk: '>=3.3.3 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State Management
+  provider: ^6.1.2 # Latest stable
+
+  # Local Storage
+  sqflite: ^2.3.3       # Latest stable
+  shared_preferences: ^2.2.3 # Latest stable
+  path_provider: ^2.1.3    # Latest stable for file paths (logs, backup)
+  # flutter_secure_storage: ^9.0.0 # Use if storing generated UUID instead of device ID
+
+  # Location & Mapping
+  geolocator: ^11.1.0 # Latest stable
+  flutter_map: ^6.1.0 # Latest stable (check migration guide from v5 if needed)
+  latlong2: ^0.9.1    # Latest stable
+
+  # Permissions
+  permission_handler: ^11.3.1 # Latest stable
+
+  # Sensors
+  sensors_plus: ^5.0.1    # Latest stable
+  pedometer: ^4.0.1     # Check for latest
+
+  # Audio & Voice
+  just_audio: ^0.9.37    # Latest stable
+  audio_service: ^0.18.12 # Latest stable
+  audio_session: ^0.1.18  # Latest stable
+  flutter_tts: ^4.0.2     # Latest stable
+
+  # Background Processing
+  flutter_background_service: ^5.0.5 # Latest stable
+  # workmanager: ^0.5.2 # Keep if specifically needed for non-continuous background tasks
+
+  # Device Info & Capabilities
+  battery_plus: ^5.0.3     # Latest stable
+  connectivity_plus: ^5.0.2 # Latest stable
+  device_info_plus: ^10.1.0 # Added for device ID
+  package_info_plus: ^8.0.0 # Added for app version
+
+  # UI & Utilities
+  equatable: ^2.0.5        # For model value comparison
+  file_picker: ^8.0.3      # Added for data restore selection
+  fl_chart: ^0.68.0       # Latest stable (For charts)
+  flutter_background_service_android: ^6.3.0 # Explicitly add platform interface, updated version
+  geolocator_platform_interface: ^4.2.2 # Corrected version for geolocator ^11.1.0
+  intl: ^0.19.0           # Latest stable for formatting
+  logger: ^2.3.0           # Added for improved logging
+  path: ^1.9.0             # Explicitly add path package
+  share_plus: ^9.0.0       # Latest stable (For sharing, export)
+  timezone: ^0.9.3         # Added for time zone calculations
+  url_launcher: ^6.3.0    # Latest stable (For links, rate app)
+  uuid: ^4.4.0             # Added for unique IDs
+  vector_math: ^2.1.4      # Added for Kalman filter math
+  vibration: ^1.8.7        # Latest stable (For haptics)
+  csv: ^6.0.0              # Added for CSV data export/import
+  archive: ^3.5.1          # Added for potential zip backup/restore
+
+  # Notifications
+  flutter_local_notifications: ^17.1.2 # Latest stable
+
+  # Firebase - REMOVED
+  # firebase_core: ...
+  # firebase_auth: ...
+  # cloud_firestore: ...
+  # google_sign_in: ...
+  # sign_in_with_apple: ...
+
+  # Splash Screen
+  flutter_native_splash: ^2.4.0 # Latest stable
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^3.0.2 # Latest stable
+  # build_runner: ^... # Add if using code generation (e.g., drift)
+  # drift_dev: ^... # Add if switching DB to drift
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/audio/ # Ensure placeholder or actual files exist
+
+  # Example fonts section (if needed)
+  # fonts:
+  #   - family: YourFont
+  #     fonts:
+  #       - asset: fonts/YourFont-Regular.ttf
+
+# Flutter Native Splash configuration
+flutter_native_splash:
+  color: "#FFFFFF" # Or your app's primary background color
+  #image: assets/splash_icon.png # Your splash icon path
+  android_gravity: center
+  ios_content_mode: center
+  # See package docs for more options

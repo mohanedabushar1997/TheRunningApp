@@ -1,0 +1,464 @@
+// --- CONTINUATION of DatabaseHelper ---
+
+  // --- User Profile Methods ---
+
+  Future<int> insertOrUpdateUserProfile(UserProfile user) async {
+    final db = await database;
+    Log.d("Inserting/Updating user profile: Device ID=${user.id}");
+    final Map<String, dynamic> profileMap = {
+       columnProfileDeviceId: user.id, // Use device ID as key
+       columnName: user.name,
+       columnEmail: null, // Email removed unless user can set it locally
+       columnWeight: user.weight,
+       columnHeight: user.height,
+       columnBirthDate: user.birthDate?.toIso8601String(),
+       columnUseImperial: user.useImperialUnits ? 1 : 0,
+    };
+    return await db.insert(
+      tableUserProfile,
+      profileMap,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<UserProfile?> getUserProfile(String deviceId) async {
+    final db = await database;
+    Log.d("Fetching user profile for Device ID: $deviceId");
+    List<Map<String, dynamic>> maps = await db.query(
+      tableUserProfile,
+      where: '$columnProfileDeviceId = ?', // Query by device ID
+      whereArgs: [deviceId],
+      limit: 1,
+    );
+    if (maps.isNotEmpty) {
+      Log.d("User profile found.");
+      final map = maps.first;
+       return UserProfile(
+         id: map[columnProfileDeviceId] as String,
+         name: map[columnName] as String?,
+         weight: (map[columnWeight] as num?)?.toDouble(),
+         height: (map[columnHeight] as num?)?.toDouble(),
+         birthDate: map[columnBirthDate] != null ? DateTime.tryParse(map[columnBirthDate] as String) : null,
+         useImperialUnits: (map[columnUseImperial] as int? ?? 0) == 1,
+       );
+    }
+    // If no exact match for device ID, maybe try loading *any* profile if only one expected?
+    // This handles the case where device ID changed but user expects their old data.
+    // Or handle this in UserProvider.
+     Log.w("User profile not found for Device ID: $deviceId. Trying to load first available profile...");
+     maps = await db.query(tableUserProfile, limit: 1);
+      if (maps.isNotEmpty) {
+         Log.w("Found an existing profile. Associating it with current device ID: $deviceId");
+         final existingProfile = UserProfile(
+             id: deviceId, // Assign current device ID
+             name: maps.first[columnName] as String?,
+             weight: (maps.first[columnWeight] as num?)?.toDouble(),
+             height: (maps.first[columnHeight] as num?)?.toDouble(),
+             birthDate: maps.first[columnBirthDate] != null ? DateTime.tryParse(maps.first[columnBirthDate] as String) : null,
+             useImperialUnits: (maps.first[columnUseImperial] as int? ?? 0) == 1,
+         );
+         // Update the stored profile's ID to the current device ID
+         await insertOrUpdateUserProfile(existingProfile);
+         return existingProfile;
+      }
+
+    Log.w("No user profile found at all.");
+    return null;
+  }
+
+
+  // --- Workout Methods (using deviceId) ---
+
+   Future<int> insertWorkout(Workout workout) async {
+      final db = await database;
+      int workoutDbId = -1;
+      if (workout.deviceId.isEmpty) {
+         Log.e("Cannot insert workout: Device ID is empty.");
+         throw ArgumentError("Device ID cannot be empty when saving workout.");
+      }
+
+      try {
+         await db.transaction((txn) async {
+            final Map<String, dynamic> workoutMap = workout.toMap(); // Uses column names from helper
+            workoutMap[columnWorkoutId] = workout.id; // Ensure workout_id is in the map for the table
+
+            workoutDbId = await txn.insert(tableWorkouts, workoutMap);
+            Log.d("Workout inserted into $tableWorkouts, DB ID: $workoutDbId");
+
+            if (workout.routePoints.isNotEmpty) {
+               Batch batch = txn.batch();
+               for (var point in workout.routePoints) {
+                  final pointMap = point.toMap();
+                  pointMap[columnPointWorkoutId] = workout.id;
+                  batch.insert(tableRoutePoints, pointMap);
+               }
+               await batch.commit(noResult: true);
+               Log.d("${workout.routePoints.length} route points inserted for Workout ID: ${workout.id}");
+            }
+            // TODO: Insert workout.intervals as JSON or separate table?
+            // if (workout.intervals.isNotEmpty) { ... batch insert ... }
+         });
+         Log.i("Workout and associated data inserted successfully for Workout ID: ${workout.id}");
+         return workoutDbId;
+      } catch (e, s) {
+         Log.e("Error inserting workout ID ${workout.id}", error: e, stackTrace: s);
+         rethrow;
+      }
+   }
+
+  Future<int> updateWorkout(Workout workout) async {
+    final db = await database;
+    Log.d("Updating workout: ID=${workout.id}, DeviceID=${workout.deviceId}");
+    final Map<String, dynamic> workoutMap = workout.toMap();
+
+    int updatedRows = await db.update(
+        tableWorkouts,
+        workoutMap,
+        where: '$columnWorkoutId = ? AND $columnDeviceId = ?', // Ensure correct workout for device
+        whereArgs: [workout.id, workout.deviceId],
+    );
+    Log.i("Workout update complete for ID ${workout.id}. Rows affected: $updatedRows");
+    // Note: Updating route points usually means deleting old ones and inserting new ones if they change significantly.
+    return updatedRows;
+  }
+
+
+  Future<int> deleteWorkout(String workoutId, String deviceId) async {
+      final db = await database;
+      Log.d("Deleting workout: ID=$workoutId, DeviceID=$deviceId");
+      int deletedRows = await db.delete(
+         tableWorkouts,
+         where: '$columnWorkoutId = ? AND $columnDeviceId = ?', // Delete only if device matches
+         whereArgs: [workoutId, deviceId],
+      );
+       Log.i("Workout delete complete for ID $workoutId. Rows affected: $deletedRows");
+       // Route points are deleted by CASCADE constraint
+       return deletedRows;
+   }
+
+  Future<List<RoutePoint>> _getRoutePointsForWorkout(DatabaseExecutor dbOrTxn, String workoutId) async {
+     final List<Map<String, dynamic>> pointMaps = await dbOrTxn.query(
+       tableRoutePoints,
+       where: '$columnPointWorkoutId = ?',
+       whereArgs: [workoutId],
+       orderBy: '$columnTimestamp ASC',
+     );
+     return pointMaps.map((pointMap) => RoutePoint.fromMap(pointMap)).toList();
+  }
+
+   // TODO: Implement _getIntervalsForWorkout if storing intervals
+
+  Future<Workout?> getWorkoutById(String workoutId, String deviceId) async {
+      final db = await database;
+      Log.d("Fetching workout by ID: $workoutId, DeviceID: $deviceId");
+      List<Map<String, dynamic>> maps = await db.query(
+         tableWorkouts,
+         where: '$columnWorkoutId = ? AND $columnDeviceId = ?', // Ensure correct device
+         whereArgs: [workoutId, deviceId],
+         limit: 1,
+      );
+
+      if (maps.isNotEmpty) {
+         final workoutMap = maps.first;
+         final List<RoutePoint> points = await _getRoutePointsForWorkout(db, workoutId);
+         // Fetch intervals if needed
+
+         final workout = Workout.fromMap(workoutMap); // Contains deviceId now
+         return workout.copyWith(routePoints: points /*, intervals: intervals */);
+      }
+      Log.w("Workout not found for ID: $workoutId and DeviceID: $deviceId");
+      return null;
+   }
+
+
+  Future<List<Workout>> getAllWorkouts({required String deviceId, int? limit, int? offset}) async {
+      final db = await database;
+      Log.d("Fetching workouts for Device: $deviceId, Limit: $limit, Offset: $offset");
+      List<Map<String, dynamic>> maps = await db.query(
+        tableWorkouts,
+        where: '$columnDeviceId = ?',
+        whereArgs: [deviceId],
+        orderBy: '$columnDate DESC',
+        limit: limit,
+        offset: offset,
+      );
+
+      // Fetch points efficiently after getting workout maps
+      List<String> workoutIds = maps.map((map) => map[columnWorkoutId] as String).toList();
+      Map<String, List<RoutePoint>> pointsMap = {};
+      if (workoutIds.isNotEmpty) {
+          final List<Map<String, dynamic>> allPointsMaps = await db.query(
+              tableRoutePoints,
+              where: '$columnPointWorkoutId IN (${List.filled(workoutIds.length, '?').join(',')})',
+              whereArgs: workoutIds,
+              orderBy: '$columnTimestamp ASC'
+          );
+          for (var pMap in allPointsMaps) {
+              String wId = pMap[columnPointWorkoutId] as String;
+              pointsMap.putIfAbsent(wId, () => []).add(RoutePoint.fromMap(pMap));
+          }
+      }
+      // TODO: Fetch intervals similarly
+
+      List<Workout> workouts = maps.map((map) {
+         String wId = map[columnWorkoutId] as String;
+         return Workout.fromMap(map).copyWith(
+            routePoints: pointsMap[wId] ?? [],
+            // intervals: intervalsMap[wId] ?? []
+         );
+      }).toList();
+
+      Log.d("Fetched ${workouts.length} workouts for device $deviceId.");
+      return workouts;
+  }
+
+  // --- Training Plan Methods (Assuming they don't need deviceId) ---
+   // ... (insertTrainingPlan, getAllTrainingPlans, updateTrainingSessionCompletion - likely no changes) ...
+    Future<void> insertTrainingPlan(TrainingPlan plan) async {
+        // ... (implementation from previous steps) ...
+        // Ensure TrainingSession.fromMap is used correctly
+    }
+    Future<List<TrainingPlan>> getAllTrainingPlans() async {
+       // ... (implementation from previous steps) ...
+       // Ensure TrainingSession.fromMap is used correctly
+    }
+    Future<void> updateTrainingSessionCompletion(String sessionId, bool completed) async {
+       // ... (implementation from previous steps) ...
+    }
+
+  // --- Statistics Methods (Ensure filtering by deviceId) ---
+   Future<Map<String, dynamic>> getTotalStats({required String deviceId}) async {
+       final db = await database;
+       final result = await db.rawQuery('''
+          SELECT
+            SUM($columnDistance) as totalDistance,
+            SUM($columnDurationSeconds) as totalDuration,
+            COUNT(*) as workoutCount
+          FROM $tableWorkouts
+          WHERE $columnStatus = 'completed' AND $columnDeviceId = ?
+       ''', [deviceId]);
+       final stats = result.first;
+       return {
+         'totalDistance': (stats['totalDistance'] as num?)?.toDouble() ?? 0.0,
+         'totalDuration': (stats['totalDuration'] as num?)?.toInt() ?? 0,
+         'workoutCount': (stats['workoutCount'] as num?)?.toInt() ?? 0,
+       };
+   }
+
+   Future<Map<String, dynamic>> getStatsForPeriod(DateTime start, DateTime end, {required String deviceId}) async {
+       final db = await database;
+       final result = await db.rawQuery('''
+          SELECT
+            SUM($columnDistance) as totalDistance,
+            SUM($columnDurationSeconds) as totalDuration,
+            COUNT(*) as workoutCount
+          FROM $tableWorkouts
+          WHERE $columnStatus = 'completed' AND $columnDeviceId = ? AND $columnDate BETWEEN ? AND ?
+       ''', [deviceId, start.toIso8601String(), end.toIso8601String()]);
+
+       final stats = result.first;
+       return {
+         'totalDistance': (stats['totalDistance'] as num?)?.toDouble() ?? 0.0,
+         'totalDuration': (stats['totalDuration'] as num?)?.toInt() ?? 0,
+         'workoutCount': (stats['workoutCount'] as num?)?.toInt() ?? 0,
+      };
+   }
+
+   // --- Data Management ---
+
+   // TODO: Implement backup functionality (Zip approach)
+   Future<File?> backupDatabaseToZip() async {
+      Log.i("Starting database backup...");
+      final db = _database;
+      if (db == null || !db.isOpen) {
+         Log.e("Backup failed: Database is not open.");
+         return null;
+      }
+
+      try {
+         // Ensure path is available
+         String dbPath = await databasePath;
+         File dbFile = File(dbPath);
+         if (!await dbFile.exists()) {
+            Log.e("Backup failed: Database file not found at $dbPath");
+            return null;
+         }
+
+          // Use path_provider to get a temporary directory for the zip file
+          final Directory tempDir = await getTemporaryDirectory();
+          final String zipPath = join(tempDir.path, 'fitstride_backup_${DateTime.now().toIso8601String().replaceAll(':', '-')}.zip');
+          Log.d("Creating backup zip at: $zipPath");
+
+          // Create Zip archive
+          var encoder = ZipFileEncoder();
+          encoder.create(zipPath);
+
+          // Add database file
+          await encoder.addFile(dbFile, basename(dbPath)); // Add DB file with its name
+          Log.d("Added database file to zip.");
+
+          // TODO: Optionally add SharedPreferences file(s) if important settings are there
+          // final prefsDir = await getApplicationDocumentsDirectory();
+          // final prefsFile = File(join(prefsDir.path, 'shared_prefs', 'FlutterSharedPreferences.xml')); // Path might vary
+          // if (await prefsFile.exists()) { await encoder.addFile(prefsFile, 'shared_prefs/FlutterSharedPreferences.xml'); }
+
+
+          // Close the zip file
+          encoder.close();
+
+          Log.i("Database backup created successfully at $zipPath");
+          return File(zipPath);
+
+      } catch (e, s) {
+         Log.e("Error during database backup", error: e, stackTrace: s);
+         return null;
+      }
+   }
+
+   // TODO: Implement restore functionality (Zip approach)
+   Future<bool> restoreDatabaseFromZip(File zipFile) async {
+      Log.w("Starting database restore from: ${zipFile.path}");
+      final db = _database;
+
+      try {
+          // 1. Close the current database connection VERY IMPORTANT
+          if (db != null && db.isOpen) {
+             await db.close();
+             _database = null; // Reset static variable
+             Log.i("Current database connection closed for restore.");
+          } else {
+             Log.w("No active database connection to close.");
+          }
+
+          // 2. Get the expected path for the database
+          String targetDbPath = await databasePath;
+          File targetDbFile = File(targetDbPath);
+
+          // 3. Backup the CURRENT database before overwriting (Safety Net!)
+          if (await targetDbFile.exists()) {
+              String safetyBackupPath = '${targetDbPath}_backup_${DateTime.now().millisecondsSinceEpoch}';
+              await targetDbFile.copy(safetyBackupPath);
+              Log.i("Created safety backup of current DB at: $safetyBackupPath");
+          }
+
+          // 4. Unzip the backup file to a temporary location
+          final Directory tempDir = await getTemporaryDirectory();
+          final inputStream = InputFileStream(zipFile.path);
+          final archive = ZipDecoder().decodeBuffer(inputStream);
+
+          String? extractedDbFileName;
+          ArchiveFile? dbArchiveFile;
+
+           // Find the database file within the archive
+           for (final file in archive) {
+              // Look for the file based on expected name or pattern
+              if (file.isFile && file.name.endsWith('.db')) {
+                  dbArchiveFile = file;
+                  extractedDbFileName = join(tempDir.path, file.name); // Path to extract to
+                  break; // Assuming only one DB file per zip
+              }
+           }
+
+           if (dbArchiveFile == null || extractedDbFileName == null) {
+              Log.e("Restore failed: Database file not found within the zip archive.");
+              // TODO: Attempt to restore safety backup?
+              return false;
+           }
+
+           // Extract the database file
+           final extractedFile = File(extractedDbFileName);
+           extractedFile.writeAsBytesSync(dbArchiveFile.content as List<int>);
+           Log.d("Extracted database file to temporary location: $extractedDbFileName");
+
+          // TODO: Extract and restore SharedPreferences if they were included in the zip
+
+          // 5. Replace the current database file with the extracted one
+           await extractedFile.copy(targetDbPath); // Overwrite existing DB file
+           Log.i("Replaced current database file with backup.");
+
+          // 6. Clean up temporary extracted file
+           await extractedFile.delete();
+
+          // 7. Re-initialize the database connection (implicitly done on next `get database` call)
+          // _database = await _initDatabase(); // Or let getter handle it
+
+          Log.w("Database restore completed successfully. App may need restart.");
+          return true;
+
+      } catch (e, s) {
+          Log.e("Error during database restore", error: e, stackTrace: s);
+          // TODO: Attempt to restore the safety backup if restore failed mid-way
+          // String safetyBackupPath = ... (need to retrieve it)
+          // if (await File(safetyBackupPath).exists()) { await File(safetyBackupPath).copy(targetDbPath); }
+          return false;
+      }
+   }
+
+
+   // --- Settings Storage ---
+   Future<void> saveSetting(String key, String value) async {
+     final db = await database;
+     await db.insert(
+       tableSettings,
+       {columnSettingKey: key, columnSettingValue: value},
+       conflictAlgorithm: ConflictAlgorithm.replace,
+     );
+   }
+
+   Future<String?> getSetting(String key) async {
+      final db = await database;
+      final List<Map<String, dynamic>> maps = await db.query(
+         tableSettings,
+         columns: [columnSettingValue],
+         where: '$columnSettingKey = ?',
+         whereArgs: [key],
+         limit: 1,
+      );
+      if (maps.isNotEmpty) {
+         return maps.first[columnSettingValue] as String?;
+      }
+      return null;
+   }
+
+  Future close() async {
+    final db = _database; // Use potentially existing instance
+    if (db != null && db.isOpen) {
+       await db.close();
+       _database = null;
+       Log.i("Database connection closed.");
+    }
+  }
+
+  // TODO: Implement methods for weight, achievements etc.
+}
+
+
+// Extension for TrainingSession fromMap (already provided, ensure it's here)
+extension TrainingSessionFromMap on TrainingSession {
+  static TrainingSession fromMap(Map<String, dynamic> sessionMap) {
+    return TrainingSession(
+      id: sessionMap[DatabaseHelper.columnSessionId] as String? ?? '',
+      week: (sessionMap[DatabaseHelper.columnSessionWeek] as num?)?.toInt() ?? 0,
+      day: (sessionMap[DatabaseHelper.columnSessionDay] as num?)?.toInt() ?? 0,
+      description: sessionMap[DatabaseHelper.columnSessionDescription] as String? ?? '',
+      type: sessionMap[DatabaseHelper.columnSessionType] as String? ?? 'Run',
+      duration: Duration(seconds: (sessionMap[DatabaseHelper.columnSessionDuration] as num?)?.toInt() ?? 0),
+      distance: (sessionMap[DatabaseHelper.columnSessionDistance] as num?)?.toDouble(),
+      completed: (sessionMap[DatabaseHelper.columnSessionCompleted] as int? ?? 0) == 1,
+    );
+  }
+}
+
+// Add similar extension for TrainingPlan.fromMap
+extension TrainingPlanFromMap on TrainingPlan {
+   static TrainingPlan fromMap(Map<String, dynamic> planMap, List<TrainingSession> sessions) {
+     return TrainingPlan(
+       id: planMap[DatabaseHelper.columnPlanId] as String? ?? '',
+       name: planMap[DatabaseHelper.columnPlanName] as String? ?? 'Unnamed Plan',
+       description: planMap[DatabaseHelper.columnPlanDescription] as String? ?? '',
+       difficulty: planMap[DatabaseHelper.columnPlanDifficulty] as String? ?? 'Intermediate',
+       durationWeeks: (planMap[DatabaseHelper.columnPlanDurationWeeks] as num?)?.toInt() ?? 0,
+       sessions: sessions,
+     );
+   }
+}
