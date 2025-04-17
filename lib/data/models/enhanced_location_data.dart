@@ -1,16 +1,18 @@
+import 'package:geolocator/geolocator.dart'; // Import the correct Position type
+
 /// Model class for enhanced location data
-/// 
+///
 /// Extends basic location data with additional metrics and filtering capabilities
 /// for improved accuracy and analysis.
 class EnhancedLocationData {
-  // Raw position data from the GPS
+  // Raw position data from the GPS (Uses geolocator's Position)
   final Position rawPosition;
-  
+
   // Filtered coordinates (after Kalman filtering if enabled)
   final double filteredLatitude;
   final double filteredLongitude;
   final double filteredAltitude;
-  
+
   // Quality and metrics
   final bool isReliable;
   final double elevationGain;
@@ -87,22 +89,5 @@ class EnhancedLocationData {
   }
 }
 
-/// Position class to match the Geolocator package's Position class
-/// This is needed for the EnhancedLocationData class to compile
-class Position {
-  final double latitude;
-  final double longitude;
-  final double altitude;
-  final double accuracy;
-  final double speed;
-  final DateTime? timestamp;
-
-  const Position({
-    required this.latitude,
-    required this.longitude,
-    required this.altitude,
-    required this.accuracy,
-    required this.speed,
-    this.timestamp,
-  });
-}
+// Removed the conflicting local Position class definition.
+// The 'Position' type used above now refers to the one from 'package:geolocator/geolocator.dart'.

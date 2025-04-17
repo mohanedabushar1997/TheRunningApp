@@ -65,6 +65,12 @@ class TrainingRepository {
   }
 
   // --- Session Management ---
+
+  // Alias for provider compatibility
+  Future<List<TrainingPlan>> getTrainingPlans() async {
+    return getAvailablePlans();
+  }
+
   Future<void> updateSessionCompletion(String sessionId, bool completed) async {
     Log.d("Updating session $sessionId completion to $completed in DB...");
     try {
@@ -74,6 +80,18 @@ class TrainingRepository {
     } catch (e, s) {
       Log.e("Error updating session completion", error: e, stackTrace: s);
       // Handle error
+    }
+  }
+
+  // Alias for provider compatibility
+  Future<bool> markSessionCompleted(String sessionId,
+      {bool completed = true}) async {
+    try {
+      await updateSessionCompletion(sessionId, completed);
+      return true; // Assume success if no error
+    } catch (e) {
+      Log.e("Error marking session completed (via alias)", error: e);
+      return false; // Indicate failure
     }
   }
 

@@ -1,5 +1,7 @@
+import 'package:flutter/material.dart'; // Added for Icons
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/achievement.dart';
+// Use the correct path for NotificationService
 import '../../device/notifications/notification_service.dart';
 
 /// A service for managing achievements in the app
@@ -9,752 +11,459 @@ class AchievementService {
   factory AchievementService() => _instance;
   AchievementService._internal();
 
-  final List<Achievement> _achievements = [];
+  // Store predefined achievements (immutable)
+  final List<Achievement> _predefinedAchievements = [];
+  // Store unlocked dates (achievement ID -> DateTime)
+  final Map<String, DateTime> _unlockedDates = {};
+
   final NotificationService _notificationService = NotificationService();
   bool _initialized = false;
-  
+
   /// Initialize the achievement service
   Future<void> initialize() async {
     if (_initialized) return;
-    
+
     // Initialize notification service
-    await _notificationService.initialize();
-    
+    // Initialize notification service
+    // Call the static initialize method directly on the class
+    // Note: We don't have access to the navigatorKey here, so passing null.
+    // This might need adjustment if notification taps require navigation.
+    await NotificationService.initialize(navKey: null);
+
     // Create predefined achievements
     _createPredefinedAchievements();
-    
+
     // Load unlocked achievements from preferences
     await _loadUnlockedAchievements();
-    
+
     _initialized = true;
   }
-  
+
   /// Create predefined achievements
   void _createPredefinedAchievements() {
-    // Distance achievements
-    _achievements.addAll([
-      Achievement(
+    // Using placeholder Icons, replace with appropriate ones
+    _predefinedAchievements.addAll([
+      // Distance achievements (threshold in meters)
+      const Achievement(
         id: 'distance_1km',
-        title: 'First Steps',
+        name: 'First Steps',
         description: 'Complete a 1 km workout',
-        iconPath: 'assets/icons/achievements/distance_bronze.png',
-        category: AchievementCategory.distance,
-        tier: AchievementTier.bronze,
-        requiredValue: 1,
+        icon: Icons.directions_run, // Placeholder
+        type: AchievementType.distanceSingle,
+        threshold: 1000,
       ),
-      Achievement(
+      const Achievement(
         id: 'distance_5km',
-        title: 'Getting Started',
+        name: 'Getting Started',
         description: 'Complete a 5 km workout',
-        iconPath: 'assets/icons/achievements/distance_bronze.png',
-        category: AchievementCategory.distance,
-        tier: AchievementTier.bronze,
-        requiredValue: 5,
+        icon: Icons.directions_run, // Placeholder
+        type: AchievementType.distanceSingle,
+        threshold: 5000,
       ),
-      Achievement(
+      const Achievement(
         id: 'distance_10km',
-        title: 'Distance Runner',
+        name: 'Distance Runner',
         description: 'Complete a 10 km workout',
-        iconPath: 'assets/icons/achievements/distance_silver.png',
-        category: AchievementCategory.distance,
-        tier: AchievementTier.silver,
-        requiredValue: 10,
+        icon: Icons.emoji_events_outlined, // Placeholder
+        type: AchievementType.distanceSingle,
+        threshold: 10000,
       ),
-      Achievement(
+      const Achievement(
         id: 'distance_21km',
-        title: 'Half Marathon',
+        name: 'Half Marathon',
         description: 'Complete a 21.1 km workout',
-        iconPath: 'assets/icons/achievements/distance_gold.png',
-        category: AchievementCategory.distance,
-        tier: AchievementTier.gold,
-        requiredValue: 21,
+        icon: Icons.military_tech_outlined, // Placeholder
+        type: AchievementType.distanceSingle,
+        threshold: 21097.5,
       ),
-      Achievement(
+      const Achievement(
         id: 'distance_42km',
-        title: 'Marathon',
+        name: 'Marathon',
         description: 'Complete a 42.2 km workout',
-        iconPath: 'assets/icons/achievements/distance_platinum.png',
-        category: AchievementCategory.distance,
-        tier: AchievementTier.platinum,
-        requiredValue: 42,
+        icon: Icons.military_tech, // Placeholder
+        type: AchievementType.distanceSingle,
+        threshold: 42195,
       ),
-      Achievement(
-        id: 'distance_100km',
-        title: 'Ultra Runner',
+      const Achievement(
+        id: 'distance_total_100km', // Changed ID for clarity
+        name: '100 km Club',
         description: 'Run a total of 100 km',
-        iconPath: 'assets/icons/achievements/distance_diamond.png',
-        category: AchievementCategory.distance,
-        tier: AchievementTier.diamond,
-        requiredValue: 100,
+        icon: Icons.social_distance, // Placeholder
+        type: AchievementType.distanceTotal,
+        threshold: 100000,
       ),
-    ]);
-    
-    // Workout count achievements
-    _achievements.addAll([
-      Achievement(
+
+      // Workout count achievements
+      const Achievement(
         id: 'workouts_1',
-        title: 'First Workout',
+        name: 'First Workout',
         description: 'Complete your first workout',
-        iconPath: 'assets/icons/achievements/workouts_bronze.png',
-        category: AchievementCategory.workouts,
-        tier: AchievementTier.bronze,
-        requiredValue: 1,
+        icon: Icons.fitness_center, // Placeholder
+        type: AchievementType.countWorkouts,
+        threshold: 1,
       ),
-      Achievement(
+      const Achievement(
         id: 'workouts_10',
-        title: 'Regular Runner',
+        name: 'Regular Runner',
         description: 'Complete 10 workouts',
-        iconPath: 'assets/icons/achievements/workouts_bronze.png',
-        category: AchievementCategory.workouts,
-        tier: AchievementTier.bronze,
-        requiredValue: 10,
+        icon: Icons.fitness_center, // Placeholder
+        type: AchievementType.countWorkouts,
+        threshold: 10,
       ),
-      Achievement(
+      const Achievement(
         id: 'workouts_25',
-        title: 'Dedicated Runner',
+        name: 'Dedicated Runner',
         description: 'Complete 25 workouts',
-        iconPath: 'assets/icons/achievements/workouts_silver.png',
-        category: AchievementCategory.workouts,
-        tier: AchievementTier.silver,
-        requiredValue: 25,
+        icon: Icons.fitness_center, // Placeholder
+        type: AchievementType.countWorkouts,
+        threshold: 25,
       ),
-      Achievement(
+      const Achievement(
         id: 'workouts_50',
-        title: 'Fitness Enthusiast',
+        name: 'Fitness Enthusiast',
         description: 'Complete 50 workouts',
-        iconPath: 'assets/icons/achievements/workouts_gold.png',
-        category: AchievementCategory.workouts,
-        tier: AchievementTier.gold,
-        requiredValue: 50,
+        icon: Icons.fitness_center, // Placeholder
+        type: AchievementType.countWorkouts,
+        threshold: 50,
       ),
-      Achievement(
+      const Achievement(
         id: 'workouts_100',
-        title: 'Century Club',
+        name: 'Century Club',
         description: 'Complete 100 workouts',
-        iconPath: 'assets/icons/achievements/workouts_platinum.png',
-        category: AchievementCategory.workouts,
-        tier: AchievementTier.platinum,
-        requiredValue: 100,
+        icon: Icons.fitness_center, // Placeholder
+        type: AchievementType.countWorkouts,
+        threshold: 100,
       ),
-      Achievement(
-        id: 'workouts_365',
-        title: 'Yearly Dedication',
-        description: 'Complete 365 workouts',
-        iconPath: 'assets/icons/achievements/workouts_diamond.png',
-        category: AchievementCategory.workouts,
-        tier: AchievementTier.diamond,
-        requiredValue: 365,
-      ),
-    ]);
-    
-    // Streak achievements
-    _achievements.addAll([
-      Achievement(
+      // Removed workouts_365 as it might overlap with streak
+
+      // Streak achievements
+      const Achievement(
         id: 'streak_3',
-        title: 'Getting Started',
+        name: 'Getting Started Streak',
         description: 'Maintain a 3-day workout streak',
-        iconPath: 'assets/icons/achievements/streak_bronze.png',
-        category: AchievementCategory.streak,
-        tier: AchievementTier.bronze,
-        requiredValue: 3,
+        icon: Icons.local_fire_department, // Placeholder
+        type: AchievementType.streakConsecutiveDays,
+        threshold: 3,
       ),
-      Achievement(
+      const Achievement(
         id: 'streak_7',
-        title: 'Weekly Warrior',
+        name: 'Weekly Warrior',
         description: 'Maintain a 7-day workout streak',
-        iconPath: 'assets/icons/achievements/streak_bronze.png',
-        category: AchievementCategory.streak,
-        tier: AchievementTier.bronze,
-        requiredValue: 7,
+        icon: Icons.local_fire_department, // Placeholder
+        type: AchievementType.streakConsecutiveDays,
+        threshold: 7,
       ),
-      Achievement(
+      const Achievement(
         id: 'streak_14',
-        title: 'Fortnight Fighter',
+        name: 'Fortnight Fighter',
         description: 'Maintain a 14-day workout streak',
-        iconPath: 'assets/icons/achievements/streak_silver.png',
-        category: AchievementCategory.streak,
-        tier: AchievementTier.silver,
-        requiredValue: 14,
+        icon: Icons.local_fire_department, // Placeholder
+        type: AchievementType.streakConsecutiveDays,
+        threshold: 14,
       ),
-      Achievement(
+      const Achievement(
         id: 'streak_30',
-        title: 'Monthly Master',
+        name: 'Monthly Master',
         description: 'Maintain a 30-day workout streak',
-        iconPath: 'assets/icons/achievements/streak_gold.png',
-        category: AchievementCategory.streak,
-        tier: AchievementTier.gold,
-        requiredValue: 30,
+        icon: Icons.local_fire_department, // Placeholder
+        type: AchievementType.streakConsecutiveDays,
+        threshold: 30,
       ),
-      Achievement(
-        id: 'streak_90',
-        title: 'Quarterly Champion',
-        description: 'Maintain a 90-day workout streak',
-        iconPath: 'assets/icons/achievements/streak_platinum.png',
-        category: AchievementCategory.streak,
-        tier: AchievementTier.platinum,
-        requiredValue: 90,
+      // Removed higher streaks for brevity
+
+      // Pace achievements (threshold in seconds per km, lower is better)
+      // Note: The original service used speed (km/h), model uses pace. Adjusting.
+      const Achievement(
+        id: 'pace_10min_km', // e.g., 10:00 min/km
+        name: 'Steady Pace',
+        description: 'Achieve a pace faster than 10:00 min/km for 1km',
+        icon: Icons.speed, // Placeholder
+        type: AchievementType.paceBest,
+        threshold: 600, // 10 * 60 seconds
       ),
-      Achievement(
-        id: 'streak_365',
-        title: 'Iron Will',
-        description: 'Maintain a 365-day workout streak',
-        iconPath: 'assets/icons/achievements/streak_diamond.png',
-        category: AchievementCategory.streak,
-        tier: AchievementTier.diamond,
-        requiredValue: 365,
+      const Achievement(
+        id: 'pace_8min_km', // e.g., 08:00 min/km
+        name: 'Picking Up Speed',
+        description: 'Achieve a pace faster than 08:00 min/km for 1km',
+        icon: Icons.speed, // Placeholder
+        type: AchievementType.paceBest,
+        threshold: 480, // 8 * 60 seconds
       ),
-    ]);
-    
-    // Speed achievements
-    _achievements.addAll([
-      Achievement(
-        id: 'speed_5kmh',
-        title: 'First Pace',
-        description: 'Achieve a pace of 5 km/h',
-        iconPath: 'assets/icons/achievements/speed_bronze.png',
-        category: AchievementCategory.speed,
-        tier: AchievementTier.bronze,
-        requiredValue: 5,
+      const Achievement(
+        id: 'pace_6min_km', // e.g., 06:00 min/km
+        name: 'Speed Demon',
+        description: 'Achieve a pace faster than 06:00 min/km for 1km',
+        icon: Icons.speed, // Placeholder
+        type: AchievementType.paceBest,
+        threshold: 360, // 6 * 60 seconds
       ),
-      Achievement(
-        id: 'speed_8kmh',
-        title: 'Picking Up Speed',
-        description: 'Achieve a pace of 8 km/h',
-        iconPath: 'assets/icons/achievements/speed_bronze.png',
-        category: AchievementCategory.speed,
-        tier: AchievementTier.bronze,
-        requiredValue: 8,
+      // Add more pace achievements for different distances (5k, 10k etc.) if needed
+
+      // Elevation achievements (threshold in meters)
+      const Achievement(
+        id: 'elevation_total_1000m',
+        name: 'Mountain Goat',
+        description: 'Climb a total of 1000 meters',
+        icon: Icons.landscape, // Placeholder
+        type: AchievementType.elevationTotalGain,
+        threshold: 1000,
       ),
-      Achievement(
-        id: 'speed_10kmh',
-        title: 'Steady Runner',
-        description: 'Achieve a pace of 10 km/h',
-        iconPath: 'assets/icons/achievements/speed_silver.png',
-        category: AchievementCategory.speed,
-        tier: AchievementTier.silver,
-        requiredValue: 10,
-      ),
-      Achievement(
-        id: 'speed_12kmh',
-        title: 'Speed Demon',
-        description: 'Achieve a pace of 12 km/h',
-        iconPath: 'assets/icons/achievements/speed_gold.png',
-        category: AchievementCategory.speed,
-        tier: AchievementTier.gold,
-        requiredValue: 12,
-      ),
-      Achievement(
-        id: 'speed_15kmh',
-        title: 'Lightning Fast',
-        description: 'Achieve a pace of 15 km/h',
-        iconPath: 'assets/icons/achievements/speed_platinum.png',
-        category: AchievementCategory.speed,
-        tier: AchievementTier.platinum,
-        requiredValue: 15,
-      ),
-      Achievement(
-        id: 'speed_20kmh',
-        title: 'Olympic Sprinter',
-        description: 'Achieve a pace of 20 km/h',
-        iconPath: 'assets/icons/achievements/speed_diamond.png',
-        category: AchievementCategory.speed,
-        tier: AchievementTier.diamond,
-        requiredValue: 20,
-      ),
-    ]);
-    
-    // Calories achievements
-    _achievements.addAll([
-      Achievement(
-        id: 'calories_100',
-        title: 'Calorie Counter',
-        description: 'Burn 100 calories in a workout',
-        iconPath: 'assets/icons/achievements/calories_bronze.png',
-        category: AchievementCategory.calories,
-        tier: AchievementTier.bronze,
-        requiredValue: 100,
-      ),
-      Achievement(
-        id: 'calories_300',
-        title: 'Calorie Crusher',
-        description: 'Burn 300 calories in a workout',
-        iconPath: 'assets/icons/achievements/calories_bronze.png',
-        category: AchievementCategory.calories,
-        tier: AchievementTier.bronze,
-        requiredValue: 300,
-      ),
-      Achievement(
-        id: 'calories_500',
-        title: 'Fat Burner',
-        description: 'Burn 500 calories in a workout',
-        iconPath: 'assets/icons/achievements/calories_silver.png',
-        category: AchievementCategory.calories,
-        tier: AchievementTier.silver,
-        requiredValue: 500,
-      ),
-      Achievement(
-        id: 'calories_1000',
-        title: 'Calorie King',
-        description: 'Burn 1000 calories in a workout',
-        iconPath: 'assets/icons/achievements/calories_gold.png',
-        category: AchievementCategory.calories,
-        tier: AchievementTier.gold,
-        requiredValue: 1000,
-      ),
-      Achievement(
-        id: 'calories_10000',
-        title: 'Mega Burner',
-        description: 'Burn a total of 10,000 calories',
-        iconPath: 'assets/icons/achievements/calories_platinum.png',
-        category: AchievementCategory.calories,
-        tier: AchievementTier.platinum,
-        requiredValue: 10000,
-      ),
-      Achievement(
-        id: 'calories_100000',
-        title: 'Calorie Millionaire',
-        description: 'Burn a total of 100,000 calories',
-        iconPath: 'assets/icons/achievements/calories_diamond.png',
-        category: AchievementCategory.calories,
-        tier: AchievementTier.diamond,
-        requiredValue: 100000,
-      ),
-    ]);
-    
-    // Special achievements
-    _achievements.addAll([
-      Achievement(
+
+      // Special achievements (threshold might be 1 for event completion)
+      const Achievement(
         id: 'special_early_bird',
-        title: 'Early Bird',
+        name: 'Early Bird',
         description: 'Complete a workout before 7 AM',
-        iconPath: 'assets/icons/achievements/special_bronze.png',
-        category: AchievementCategory.special,
-        tier: AchievementTier.bronze,
-        requiredValue: 1,
+        icon: Icons.wb_sunny_outlined, // Placeholder
+        type: AchievementType.specialEvent,
+        threshold: 1, // Represents 1 event completion
       ),
-      Achievement(
+      const Achievement(
         id: 'special_night_owl',
-        title: 'Night Owl',
+        name: 'Night Owl',
         description: 'Complete a workout after 10 PM',
-        iconPath: 'assets/icons/achievements/special_bronze.png',
-        category: AchievementCategory.special,
-        tier: AchievementTier.bronze,
-        requiredValue: 1,
+        icon: Icons.nightlight_outlined, // Placeholder
+        type: AchievementType.specialEvent,
+        threshold: 1, // Represents 1 event completion
       ),
-      Achievement(
-        id: 'special_weekend_warrior',
-        title: 'Weekend Warrior',
-        description: 'Complete workouts on 5 consecutive weekends',
-        iconPath: 'assets/icons/achievements/special_silver.png',
-        category: AchievementCategory.special,
-        tier: AchievementTier.silver,
-        requiredValue: 5,
-      ),
-      Achievement(
-        id: 'special_all_weather',
-        title: 'All-Weather Runner',
-        description: 'Complete workouts in all four seasons',
-        iconPath: 'assets/icons/achievements/special_gold.png',
-        category: AchievementCategory.special,
-        tier: AchievementTier.gold,
-        requiredValue: 4,
-      ),
-      Achievement(
-        id: 'special_globetrotter',
-        title: 'Globetrotter',
-        description: 'Complete workouts in 5 different locations',
-        iconPath: 'assets/icons/achievements/special_platinum.png',
-        category: AchievementCategory.special,
-        tier: AchievementTier.platinum,
-        requiredValue: 5,
-      ),
-      Achievement(
-        id: 'special_completionist',
-        title: 'Completionist',
-        description: 'Unlock 25 other achievements',
-        iconPath: 'assets/icons/achievements/special_diamond.png',
-        category: AchievementCategory.special,
-        tier: AchievementTier.diamond,
-        requiredValue: 25,
-      ),
+      // Add more special achievements
     ]);
   }
-  
+
   /// Load unlocked achievements from preferences
   Future<void> _loadUnlockedAchievements() async {
     final prefs = await SharedPreferences.getInstance();
-    
-    for (final achievement in _achievements) {
-      final isUnlocked = prefs.getBool('achievement_${achievement.id}_unlocked') ?? false;
-      final unlockedDateString = prefs.getString('achievement_${achievement.id}_date');
-      
-      if (isUnlocked) {
-        achievement.isUnlocked = true;
-        if (unlockedDateString != null) {
-          achievement.unlockedDate = DateTime.parse(unlockedDateString);
+    _unlockedDates.clear();
+    for (final achievement in _predefinedAchievements) {
+      final unlockedDateString =
+          prefs.getString('achievement_${achievement.id}_date');
+      if (unlockedDateString != null) {
+        final unlockedDate = DateTime.tryParse(unlockedDateString);
+        if (unlockedDate != null) {
+          _unlockedDates[achievement.id] = unlockedDate;
         }
       }
     }
   }
-  
+
   /// Save unlocked achievement to preferences
-  Future<void> _saveUnlockedAchievement(Achievement achievement) async {
+  Future<void> _saveUnlockedAchievement(
+      String achievementId, DateTime dateEarned) async {
     final prefs = await SharedPreferences.getInstance();
-    
-    await prefs.setBool('achievement_${achievement.id}_unlocked', true);
-    if (achievement.unlockedDate != null) {
-      await prefs.setString(
-        'achievement_${achievement.id}_date', 
-        achievement.unlockedDate!.toIso8601String(),
-      );
-    }
+    _unlockedDates[achievementId] = dateEarned;
+    await prefs.setString(
+      'achievement_${achievementId}_date',
+      dateEarned.toIso8601String(),
+    );
   }
-  
-  /// Check and update distance achievements
-  Future<List<Achievement>> checkDistanceAchievements(double distanceKm) async {
+
+  // Helper to check if an achievement is unlocked
+  bool isUnlocked(String achievementId) {
+    return _unlockedDates.containsKey(achievementId);
+  }
+
+  // Helper to get the unlock date
+  DateTime? getUnlockDate(String achievementId) {
+    return _unlockedDates[achievementId];
+  }
+
+  /// Generic unlock function
+  Future<Achievement?> _unlockAchievement(Achievement achievement) async {
+    if (!isUnlocked(achievement.id)) {
+      final now = DateTime.now();
+      await _saveUnlockedAchievement(achievement.id, now);
+      // Assuming NotificationService has a method like this
+      // Pass the achievement object itself for more context
+      // Using showMilestoneNotification as the closest match
+      await _notificationService.showMilestoneNotification(
+          achievement.name, // Use achievement name for title
+          achievement.description // Use achievement description for body
+          );
+      return achievement.copyWith(dateEarned: now);
+    }
+    return null; // Return null if already unlocked
+  }
+
+  /// Check and update distance achievements (total distance in meters)
+  Future<List<Achievement>> checkTotalDistanceAchievements(
+      double totalDistanceMeters) async {
     if (!_initialized) await initialize();
-    
-    final unlockedAchievements = <Achievement>[];
-    
-    for (final achievement in _achievements) {
-      if (achievement.category == AchievementCategory.distance && 
-          !achievement.isUnlocked &&
-          distanceKm >= achievement.requiredValue) {
-        achievement.unlock();
-        await _saveUnlockedAchievement(achievement);
-        unlockedAchievements.add(achievement);
-        
-        // Show notification
-        await _notificationService.showAchievementNotification(
-          achievement.title,
-          achievement.description,
-        );
+    final newlyUnlocked = <Achievement>[];
+
+    for (final achievement in _predefinedAchievements) {
+      if (achievement.type == AchievementType.distanceTotal &&
+          !isUnlocked(achievement.id) &&
+          totalDistanceMeters >= achievement.threshold) {
+        final unlocked = await _unlockAchievement(achievement);
+        if (unlocked != null) newlyUnlocked.add(unlocked);
       }
     }
-    
-    return unlockedAchievements;
+    return newlyUnlocked;
   }
-  
+
+  /// Check and update single run distance achievements (distance in meters)
+  Future<List<Achievement>> checkSingleDistanceAchievements(
+      double singleDistanceMeters) async {
+    if (!_initialized) await initialize();
+    final newlyUnlocked = <Achievement>[];
+
+    for (final achievement in _predefinedAchievements) {
+      if (achievement.type == AchievementType.distanceSingle &&
+          !isUnlocked(achievement.id) &&
+          singleDistanceMeters >= achievement.threshold) {
+        final unlocked = await _unlockAchievement(achievement);
+        if (unlocked != null) newlyUnlocked.add(unlocked);
+      }
+    }
+    return newlyUnlocked;
+  }
+
   /// Check and update workout count achievements
-  Future<List<Achievement>> checkWorkoutCountAchievements(int workoutCount) async {
+  Future<List<Achievement>> checkWorkoutCountAchievements(
+      int workoutCount) async {
     if (!_initialized) await initialize();
-    
-    final unlockedAchievements = <Achievement>[];
-    
-    for (final achievement in _achievements) {
-      if (achievement.category == AchievementCategory.workouts && 
-          !achievement.isUnlocked &&
-          workoutCount >= achievement.requiredValue) {
-        achievement.unlock();
-        await _saveUnlockedAchievement(achievement);
-        unlockedAchievements.add(achievement);
-        
-        // Show notification
-        await _notificationService.showAchievementNotification(
-          achievement.title,
-          achievement.description,
-        );
+    final newlyUnlocked = <Achievement>[];
+
+    for (final achievement in _predefinedAchievements) {
+      if (achievement.type == AchievementType.countWorkouts &&
+          !isUnlocked(achievement.id) &&
+          workoutCount >= achievement.threshold) {
+        final unlocked = await _unlockAchievement(achievement);
+        if (unlocked != null) newlyUnlocked.add(unlocked);
       }
     }
-    
-    return unlockedAchievements;
+    return newlyUnlocked;
   }
-  
+
   /// Check and update streak achievements
   Future<List<Achievement>> checkStreakAchievements(int streakDays) async {
     if (!_initialized) await initialize();
-    
-    final unlockedAchievements = <Achievement>[];
-    
-    for (final achievement in _achievements) {
-      if (achievement.category == AchievementCategory.streak && 
-          !achievement.isUnlocked &&
-          streakDays >= achievement.requiredValue) {
-        achievement.unlock();
-        await _saveUnlockedAchievement(achievement);
-        unlockedAchievements.add(achievement);
-        
-        // Show notification
-        await _notificationService.showAchievementNotification(
-          achievement.title,
-          achievement.description,
-        );
+    final newlyUnlocked = <Achievement>[];
+
+    for (final achievement in _predefinedAchievements) {
+      if (achievement.type == AchievementType.streakConsecutiveDays &&
+          !isUnlocked(achievement.id) &&
+          streakDays >= achievement.threshold) {
+        final unlocked = await _unlockAchievement(achievement);
+        if (unlocked != null) newlyUnlocked.add(unlocked);
       }
     }
-    
-    return unlockedAchievements;
+    return newlyUnlocked;
   }
-  
-  /// Check and update speed achievements
-  Future<List<Achievement>> checkSpeedAchievements(double speedKmh) async {
+
+  /// Check and update pace achievements (pace in seconds per km)
+  Future<List<Achievement>> checkPaceAchievements(
+      double paceSecondsPerKm) async {
     if (!_initialized) await initialize();
-    
-    final unlockedAchievements = <Achievement>[];
-    
-    for (final achievement in _achievements) {
-      if (achievement.category == AchievementCategory.speed && 
-          !achievement.isUnlocked &&
-          speedKmh >= achievement.requiredValue) {
-        achievement.unlock();
-        await _saveUnlockedAchievement(achievement);
-        unlockedAchievements.add(achievement);
-        
-        // Show notification
-        await _notificationService.showAchievementNotification(
-          achievement.title,
-          achievement.description,
-        );
+    final newlyUnlocked = <Achievement>[];
+
+    for (final achievement in _predefinedAchievements) {
+      // Lower pace value is better
+      if (achievement.type == AchievementType.paceBest &&
+          !isUnlocked(achievement.id) &&
+          paceSecondsPerKm <= achievement.threshold) {
+        // Note: <= for pace
+        final unlocked = await _unlockAchievement(achievement);
+        if (unlocked != null) newlyUnlocked.add(unlocked);
       }
     }
-    
-    return unlockedAchievements;
+    return newlyUnlocked;
   }
-  
-  /// Check and update calories achievements
-  Future<List<Achievement>> checkCaloriesAchievements(double calories, bool isSingleWorkout) async {
+
+  /// Check and update total elevation gain achievements (gain in meters)
+  Future<List<Achievement>> checkTotalElevationAchievements(
+      double totalElevationGainMeters) async {
     if (!_initialized) await initialize();
-    
-    final unlockedAchievements = <Achievement>[];
-    
-    for (final achievement in _achievements) {
-      if (achievement.category == AchievementCategory.calories && 
-          !achievement.isUnlocked) {
-        
-        // Check if this is a single workout achievement or total calories achievement
-        final isTotalCaloriesAchievement = achievement.requiredValue >= 10000;
-        
-        if ((isSingleWorkout && !isTotalCaloriesAchievement) || 
-            (!isSingleWorkout && isTotalCaloriesAchievement)) {
-          if (calories >= achievement.requiredValue) {
-            achievement.unlock();
-            await _saveUnlockedAchievement(achievement);
-            unlockedAchievements.add(achievement);
-            
-            // Show notification
-            await _notificationService.showAchievementNotification(
-              achievement.title,
-              achievement.description,
-            );
-          }
-        }
+    final newlyUnlocked = <Achievement>[];
+
+    for (final achievement in _predefinedAchievements) {
+      if (achievement.type == AchievementType.elevationTotalGain &&
+          !isUnlocked(achievement.id) &&
+          totalElevationGainMeters >= achievement.threshold) {
+        final unlocked = await _unlockAchievement(achievement);
+        if (unlocked != null) newlyUnlocked.add(unlocked);
       }
     }
-    
-    return unlockedAchievements;
+    return newlyUnlocked;
   }
-  
-  /// Check and update special achievements
-  Future<List<Achievement>> checkSpecialAchievements(Map<String, dynamic> criteria) async {
+
+  // --- Special Achievements ---
+  // These might need specific triggers within the app logic
+
+  Future<Achievement?> checkEarlyBirdAchievement(
+      DateTime workoutStartTime) async {
     if (!_initialized) await initialize();
-    
-    final unlockedAchievements = <Achievement>[];
-    
-    // Early Bird achievement
-    if (criteria.containsKey('timeOfDay') && criteria['timeOfDay'] == 'morning') {
-      final earlyBird = _achievements.firstWhere(
-        (a) => a.id == 'special_early_bird',
-        orElse: () => Achievement(
-          id: '',
-          title: '',
-          description: '',
-          iconPath: '',
-          category: AchievementCategory.special,
-          tier: AchievementTier.bronze,
-          requiredValue: 0,
-        ),
-      );
-      
-      if (!earlyBird.isUnlocked) {
-        earlyBird.unlock();
-        await _saveUnlockedAchievement(earlyBird);
-        unlockedAchievements.add(earlyBird);
-        
-        // Show notification
-        await _notificationService.showAchievementNotification(
-          earlyBird.title,
-          earlyBird.description,
-        );
-      }
+    final achievement = getAchievementById('special_early_bird');
+    if (achievement != null &&
+        !isUnlocked(achievement.id) &&
+        workoutStartTime.hour < 7) {
+      return await _unlockAchievement(achievement);
     }
-    
-    // Night Owl achievement
-    if (criteria.containsKey('timeOfDay') && criteria['timeOfDay'] == 'night') {
-      final nightOwl = _achievements.firstWhere(
-        (a) => a.id == 'special_night_owl',
-        orElse: () => Achievement(
-          id: '',
-          title: '',
-          description: '',
-          iconPath: '',
-          category: AchievementCategory.special,
-          tier: AchievementTier.bronze,
-          requiredValue: 0,
-        ),
-      );
-      
-      if (!nightOwl.isUnlocked) {
-        nightOwl.unlock();
-        await _saveUnlockedAchievement(nightOwl);
-        unlockedAchievements.add(nightOwl);
-        
-        // Show notification
-        await _notificationService.showAchievementNotification(
-          nightOwl.title,
-          nightOwl.description,
-        );
-      }
-    }
-    
-    // Weekend Warrior achievement
-    if (criteria.containsKey('consecutiveWeekends')) {
-      final consecutiveWeekends = criteria['consecutiveWeekends'] as int;
-      final weekendWarrior = _achievements.firstWhere(
-        (a) => a.id == 'special_weekend_warrior',
-        orElse: () => Achievement(
-          id: '',
-          title: '',
-          description: '',
-          iconPath: '',
-          category: AchievementCategory.special,
-          tier: AchievementTier.silver,
-          requiredValue: 0,
-        ),
-      );
-      
-      if (!weekendWarrior.isUnlocked && consecutiveWeekends >= weekendWarrior.requiredValue) {
-        weekendWarrior.unlock();
-        await _saveUnlockedAchievement(weekendWarrior);
-        unlockedAchievements.add(weekendWarrior);
-        
-        // Show notification
-        await _notificationService.showAchievementNotification(
-          weekendWarrior.title,
-          weekendWarrior.description,
-        );
-      }
-    }
-    
-    // All-Weather Runner achievement
-    if (criteria.containsKey('seasons')) {
-      final seasons = criteria['seasons'] as Set<String>;
-      final allWeatherRunner = _achievements.firstWhere(
-        (a) => a.id == 'special_all_weather',
-        orElse: () => Achievement(
-          id: '',
-          title: '',
-          description: '',
-          iconPath: '',
-          category: AchievementCategory.special,
-          tier: AchievementTier.gold,
-          requiredValue: 0,
-        ),
-      );
-      
-      if (!allWeatherRunner.isUnlocked && seasons.length >= allWeatherRunner.requiredValue) {
-        allWeatherRunner.unlock();
-        await _saveUnlockedAchievement(allWeatherRunner);
-        unlockedAchievements.add(allWeatherRunner);
-        
-        // Show notification
-        await _notificationService.showAchievementNotification(
-          allWeatherRunner.title,
-          allWeatherRunner.description,
-        );
-      }
-    }
-    
-    // Globetrotter achievement
-    if (criteria.containsKey('locations')) {
-      final locations = criteria['locations'] as Set<String>;
-      final globetrotter = _achievements.firstWhere(
-        (a) => a.id == 'special_globetrotter',
-        orElse: () => Achievement(
-          id: '',
-          title: '',
-          description: '',
-          iconPath: '',
-          category: AchievementCategory.special,
-          tier: AchievementTier.platinum,
-          requiredValue: 0,
-        ),
-      );
-      
-      if (!globetrotter.isUnlocked && locations.length >= globetrotter.requiredValue) {
-        globetrotter.unlock();
-        await _saveUnlockedAchievement(globetrotter);
-        unlockedAchievements.add(globetrotter);
-        
-        // Show notification
-        await _notificationService.showAchievementNotification(
-          globetrotter.title,
-          globetrotter.description,
-        );
-      }
-    }
-    
-    // Completionist achievement
-    final unlockedCount = _achievements.where((a) => a.isUnlocked).length;
-    final completionist = _achievements.firstWhere(
-      (a) => a.id == 'special_completionist',
-      orElse: () => Achievement(
-        id: '',
-        title: '',
-        description: '',
-        iconPath: '',
-        category: AchievementCategory.special,
-        tier: AchievementTier.diamond,
-        requiredValue: 0,
-      ),
-    );
-    
-    if (!completionist.isUnlocked && unlockedCount >= completionist.requiredValue) {
-      completionist.unlock();
-      await _saveUnlockedAchievement(completionist);
-      unlockedAchievements.add(completionist);
-      
-      // Show notification
-      await _notificationService.showAchievementNotification(
-        completionist.title,
-        completionist.description,
-      );
-    }
-    
-    return unlockedAchievements;
+    return null;
   }
-  
-  /// Get all achievements
+
+  Future<Achievement?> checkNightOwlAchievement(
+      DateTime workoutStartTime) async {
+    if (!_initialized) await initialize();
+    final achievement = getAchievementById('special_night_owl');
+    // Assuming workout ends after 10 PM (22:00)
+    if (achievement != null &&
+        !isUnlocked(achievement.id) &&
+        workoutStartTime.hour >= 22) {
+      return await _unlockAchievement(achievement);
+    }
+    return null;
+  }
+
+  // Add checks for other special achievements (Weekend Warrior, All-Weather, Globetrotter, Completionist)
+  // These will likely require more complex state tracking (e.g., workout history, locations)
+
+  /// Get all achievements, adding earned date if unlocked
   List<Achievement> getAllAchievements() {
-    return List.unmodifiable(_achievements);
+    if (!_initialized) {
+      // Maybe throw an error or return empty list if not initialized
+      print("Warning: AchievementService accessed before initialization.");
+      return [];
+    }
+    return _predefinedAchievements.map((ach) {
+      final unlockedDate = _unlockedDates[ach.id];
+      return unlockedDate != null
+          ? ach.copyWith(dateEarned: unlockedDate)
+          : ach;
+    }).toList();
   }
-  
+
   /// Get unlocked achievements
   List<Achievement> getUnlockedAchievements() {
-    return _achievements.where((a) => a.isUnlocked).toList();
+    return getAllAchievements().where((a) => a.isEarned).toList();
   }
-  
+
   /// Get locked achievements
   List<Achievement> getLockedAchievements() {
-    return _achievements.where((a) => !a.isUnlocked).toList();
+    return getAllAchievements().where((a) => !a.isEarned).toList();
   }
-  
+
   /// Get achievements by category
-  List<Achievement> getAchievementsByCategory(AchievementCategory category) {
-    return _achievements.where((a) => a.category == category).toList();
+  List<Achievement> getAchievementsByCategory(AchievementType type) {
+    return getAllAchievements().where((a) => a.type == type).toList();
   }
-  
-  /// Get total achievement points
-  int getTotalAchievementPoints() {
-    return _achievements
-        .where((a) => a.isUnlocked)
-        .fold(0, (sum, a) => sum + a.getPointsValue());
-  }
-  
-  /// Get achievement by ID
+
+  // Removed getTotalAchievementPoints as points aren't defined in the model
+
+  /// Get achievement by ID, adding earned date if unlocked
   Achievement? getAchievementById(String id) {
+    if (!_initialized) return null;
     try {
-      return _achievements.firstWhere((a) => a.id == id);
+      final achievement = _predefinedAchievements.firstWhere((a) => a.id == id);
+      final unlockedDate = _unlockedDates[achievement.id];
+      return unlockedDate != null
+          ? achievement.copyWith(dateEarned: unlockedDate)
+          : achievement;
     } catch (e) {
-      return null;
+      return null; // Not found
     }
   }
 }
+
+// Removed AchievementCategory and AchievementTier enums as they are not used
+// in the Achievement model. Use AchievementType instead.

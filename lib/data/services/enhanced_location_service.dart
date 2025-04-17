@@ -1,19 +1,21 @@
 import 'dart:async';
-import 'dart:math' show cos, sqrt, asin, pi, min, max;
+import 'dart:math' as math; // Import full math library with prefix
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import 'enhanced_battery_service.dart';
 import '../../utils/kalman_filter.dart';
-import '../models/enhanced_location_data.dart';
+// Use prefix for local models to avoid Position conflict
+import '../models/enhanced_location_data.dart' as local_models;
 
 /// Enhanced service for location tracking with advanced features
-/// 
+///
 /// Provides sophisticated location tracking with Kalman filtering for position smoothing,
 /// accuracy filtering, battery optimization, and activity detection.
 class EnhancedLocationService {
   // Singleton pattern
-  static final EnhancedLocationService _instance = EnhancedLocationService._internal();
+  static final EnhancedLocationService _instance =
+      EnhancedLocationService._internal();
   factory EnhancedLocationService() => _instance;
   EnhancedLocationService._internal();
 
@@ -22,14 +24,21 @@ class EnhancedLocationService {
   final EnhancedBatteryService _batteryService = EnhancedBatteryService();
 
   // Streaming
-  StreamSubscription<Position>? _positionStreamSubscription;
-  final _positionController = StreamController<EnhancedLocationData>.broadcast();
+  // Explicitly use geolocator.Position for the stream subscription type
+  StreamSubscription<geolocator.Position>? _positionStreamSubscription;
+  // Use prefixed type for the StreamController
+  final _positionController =
+      StreamController<local_models.EnhancedLocationData>.broadcast();
 
   // Data storage
-  final List<EnhancedLocationData> _locations = [];
-  final List<Position> _positions = []; // Keep for backward compatibility
+  // Use prefixed type for the list
+  final List<local_models.EnhancedLocationData> _locations = [];
+  // Explicitly use geolocator.Position for the list type
+  final List<geolocator.Position> _positions =
+      []; // Keep for backward compatibility
 
   // Filter components
+  // Assuming LocationKalmanFilter is defined in the imported utils file
   LocationKalmanFilter? _kalmanFilter;
 
   // Status flags
@@ -45,17 +54,19 @@ class EnhancedLocationService {
   double _totalElevationGain = 0;
   double _totalElevationLoss = 0;
   DateTime? _lastLocationTime;
-  Position? _lastPosition;
-  EnhancedLocationData? _lastLocation;
+  // Explicitly use geolocator.Position for the variable type
+  geolocator.Position? _lastPosition;
+  // Use prefixed type for the variable
+  local_models.EnhancedLocationData? _lastLocation;
   int _consecutiveBadReadings = 0;
-  int _maxConsecutiveBadReadings = 5;
+  final int _maxConsecutiveBadReadings = 5;
 
   // Configuration
   int _distanceFilter = 5; // meters
   LocationAccuracy _locationAccuracy = LocationAccuracy.high;
   Duration _locationInterval = const Duration(seconds: 1);
   Timer? _locationUpdateTimer;
-  
+
   // Activity detection
   String _currentActivity = "unknown";
   double _currentSpeed = 0.0;
@@ -63,13 +74,20 @@ class EnhancedLocationService {
   Timer? _activityDetectionTimer;
 
   // Getters
-  Stream<EnhancedLocationData> get locationStream => _positionController.stream;
-  Stream<Position> get positionStream => locationStream.map((loc) => loc.rawPosition);
+  // Use prefixed type for the stream getter
+  Stream<local_models.EnhancedLocationData> get locationStream =>
+      _positionController.stream;
+  // Explicitly use geolocator.Position for the stream type
+  Stream<geolocator.Position> get positionStream =>
+      locationStream.map((loc) => loc.rawPosition);
   bool get isTracking => _isTracking;
   bool get isPaused => _isPaused;
   bool get isPermissionGranted => _isPermissionGranted;
-  List<Position> get positions => List.unmodifiable(_positions);
-  List<EnhancedLocationData> get locations => List.unmodifiable(_locations);
+  // Explicitly use geolocator.Position for the list type
+  List<geolocator.Position> get positions => List.unmodifiable(_positions);
+  // Use prefixed type for the list getter
+  List<local_models.EnhancedLocationData> get locations =>
+      List.unmodifiable(_locations);
   String get currentActivity => _currentActivity;
   bool get isMoving => _isMoving;
 
@@ -160,7 +178,8 @@ class EnhancedLocationService {
   }
 
   /// Get current position
-  Future<Position?> getCurrentPosition() async {
+  // Explicitly use geolocator.Position for the return type
+  Future<geolocator.Position?> getCurrentPosition() async {
     if (!await checkPermissions()) {
       return null;
     }
@@ -216,24 +235,24 @@ class EnhancedLocationService {
     // Start new tracking
     _positionStreamSubscription = _geolocator
         .getPositionStream(
-          locationSettings: LocationSettings(
-            accuracy: _locationAccuracy,
-            distanceFilter: _distanceFilter,
-          ),
-        )
+      locationSettings: LocationSettings(
+        accuracy: _locationAccuracy,
+        distanceFilter: _distanceFilter,
+      ),
+    )
         .listen(
-          _processRawPosition,
-          onError: (error) {
-            _positionController.addError(error);
-            print('Location stream error: $error');
-          },
-        );
+      _processRawPosition,
+      onError: (error) {
+        _positionController.addError(error);
+        print('Location stream error: $error');
+      },
+    );
 
     // Start periodic updates for battery optimization if enabled
     if (_useBatteryOptimization) {
       _startAdaptiveLocationUpdates();
     }
-    
+
     // Start activity detection
     _startActivityDetection();
 
@@ -242,13 +261,14 @@ class EnhancedLocationService {
   }
 
   /// Process incoming GPS positions
-  void _processRawPosition(Position position) {
+  // Explicitly use geolocator.Position for the parameter type
+  void _processRawPosition(geolocator.Position position) {
     // Add raw position to list for backward compatibility
     _positions.add(position);
 
     // Update current speed
     _currentSpeed = position.speed;
-    
+
     // Update movement status
     _isMoving = position.speed > 0.5; // Moving if speed > 0.5 m/s (1.8 km/h)
 
@@ -332,15 +352,16 @@ class EnhancedLocationService {
 
       // Calculate speed if timestamp is available
       if (_lastLocationTime != null && position.timestamp != null) {
-        final timeDiff = position.timestamp!.difference(_lastLocationTime!).inSeconds;
+        final timeDiff =
+            position.timestamp!.difference(_lastLocationTime!).inSeconds;
         if (timeDiff > 0 && distanceFromPrevious > 0) {
           calculatedSpeed = distanceFromPrevious / timeDiff;
         }
       }
     }
 
-    // Create enhanced location data
-    final enhancedLocation = EnhancedLocationData(
+    // Create enhanced location data using the prefixed constructor
+    final enhancedLocation = local_models.EnhancedLocationData(
       rawPosition: position,
       filteredLatitude: filteredLat,
       filteredLongitude: filteredLng,
@@ -377,30 +398,32 @@ class EnhancedLocationService {
       _positionStreamSubscription?.cancel();
       _positionStreamSubscription = _geolocator
           .getPositionStream(
-            locationSettings: LocationSettings(
-              accuracy: _locationAccuracy,
-              distanceFilter: _distanceFilter,
-            ),
-          )
+        locationSettings: LocationSettings(
+          accuracy: _locationAccuracy,
+          distanceFilter: _distanceFilter,
+        ),
+      )
           .listen(
-            _processRawPosition,
-            onError: (error) {
-              _positionController.addError(error);
-              print('Location stream error: $error');
-            },
-          );
+        _processRawPosition,
+        onError: (error) {
+          _positionController.addError(error);
+          print('Location stream error: $error');
+        },
+      );
     }
-    
+
     // Log the current settings
     print('Battery optimization settings updated:');
     print('- Battery level: ${_batteryService.currentBatteryLevel}%');
     print('- Distance filter: $_distanceFilter meters');
     print('- Location accuracy: ${_locationAccuracy.name}');
     print('- Sampling interval: ${_locationInterval.inSeconds} seconds');
-    
+
     // If battery is critically low, suggest pausing tracking
-    if (_batteryService.currentBatteryLevel < 10 && !_batteryService.isCharging) {
-      print('WARNING: Battery level critically low. Consider pausing tracking.');
+    if (_batteryService.currentBatteryLevel < 10 &&
+        !_batteryService.isCharging) {
+      print(
+          'WARNING: Battery level critically low. Consider pausing tracking.');
     }
   }
 
@@ -418,7 +441,7 @@ class EnhancedLocationService {
       }
     });
   }
-  
+
   /// Start activity detection based on movement patterns
   void _startActivityDetection() {
     _activityDetectionTimer?.cancel();
@@ -426,34 +449,37 @@ class EnhancedLocationService {
       _detectActivity();
     });
   }
-  
+
   /// Detect user activity based on speed and movement patterns
   void _detectActivity() {
     if (!_isTracking || _isPaused || _locations.isEmpty) return;
-    
+
     // Get recent locations for analysis
-    final recentLocations = _locations.length > 10 
-        ? _locations.sublist(_locations.length - 10) 
+    final recentLocations = _locations.length > 10
+        ? _locations.sublist(_locations.length - 10)
         : _locations;
-    
+
     // Calculate average speed
     double avgSpeed = 0;
     for (final loc in recentLocations) {
       avgSpeed += loc.calculatedSpeed;
     }
     avgSpeed /= recentLocations.length;
-    
+
     // Determine activity based on speed
-    if (avgSpeed < 0.5) { // < 1.8 km/h
+    if (avgSpeed < 0.5) {
+      // < 1.8 km/h
       _currentActivity = "stationary";
-    } else if (avgSpeed < 2.0) { // < 7.2 km/h
+    } else if (avgSpeed < 2.0) {
+      // < 7.2 km/h
       _currentActivity = "walking";
-    } else if (avgSpeed < 3.0) { // < 10.8 km/h
+    } else if (avgSpeed < 3.0) {
+      // < 10.8 km/h
       _currentActivity = "jogging";
     } else {
       _currentActivity = "running";
     }
-    
+
     // Adjust tracking parameters based on activity
     if (_useBatteryOptimization) {
       if (_currentActivity == "stationary" && _distanceFilter < 10) {
@@ -467,25 +493,25 @@ class EnhancedLocationService {
       }
     }
   }
-  
+
   /// Update tracking parameters while tracking is active
   void _updateTrackingParameters() {
     if (_isTracking && !_isPaused && _positionStreamSubscription != null) {
       _positionStreamSubscription?.cancel();
       _positionStreamSubscription = _geolocator
           .getPositionStream(
-            locationSettings: LocationSettings(
-              accuracy: _locationAccuracy,
-              distanceFilter: _distanceFilter,
-            ),
-          )
+        locationSettings: LocationSettings(
+          accuracy: _locationAccuracy,
+          distanceFilter: _distanceFilter,
+        ),
+      )
           .listen(
-            _processRawPosition,
-            onError: (error) {
-              _positionController.addError(error);
-              print('Location stream error: $error');
-            },
-          );
+        _processRawPosition,
+        onError: (error) {
+          _positionController.addError(error);
+          print('Location stream error: $error');
+        },
+      );
     }
   }
 
@@ -493,7 +519,7 @@ class EnhancedLocationService {
   Future<void> pauseTracking() async {
     if (!_isTracking || _isPaused) return;
 
-    await _positionStreamSubscription?.pause();
+    _positionStreamSubscription?.pause();
     _locationUpdateTimer?.cancel();
     _activityDetectionTimer?.cancel();
     _isPaused = true;
@@ -503,14 +529,14 @@ class EnhancedLocationService {
   Future<void> resumeTracking() async {
     if (!_isTracking || !_isPaused) return;
 
-    await _positionStreamSubscription?.resume();
-    
+    _positionStreamSubscription?.resume();
+
     // Restart timers
     if (_useBatteryOptimization) {
       _startAdaptiveLocationUpdates();
     }
     _startActivityDetection();
-    
+
     _isPaused = false;
   }
 
@@ -531,60 +557,27 @@ class EnhancedLocationService {
     const double earthRadius = 6371000; // in meters
     final double dLat = _toRadians(lat2 - lat1);
     final double dLng = _toRadians(lng2 - lng1);
-    
-    final double a = 
-        _sin(dLat / 2) * _sin(dLat / 2) +
-        _cos(_toRadians(lat1)) * _cos(_toRadians(lat2)) *
-        _sin(dLng / 2) * _sin(dLng / 2);
-    
-    final double c = 2 * _atan2(_sqrt(a), _sqrt(1 - a));
-    
+
+    // Use math prefix for static math functions
+    final double a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(_toRadians(lat1)) *
+            math.cos(_toRadians(lat2)) *
+            math.sin(dLng / 2) *
+            math.sin(dLng / 2);
+
+    final double c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+
     return earthRadius * c;
   }
 
   // Helper methods for the Haversine formula
-  double _toRadians(double degrees) => degrees * (pi / 180);
-  double _sin(double radians) => sin(radians);
-  double _cos(double radians) => cos(radians);
-  double _sqrt(double value) => sqrt(value);
-  double _atan2(double y, double x) => atan2(y, x);
+  double _toRadians(double degrees) => degrees * (math.pi / 180);
+  double _sin(double radians) => math.sin(radians); // Use math.sin
+  double _cos(double radians) => math.cos(radians); // Use math.cos
+  double _sqrt(double value) => math.sqrt(value); // Use math.sqrt
+  double _atan2(double y, double x) => math.atan2(y, x); // Use math.atan2
 
-  // Safe math operations to handle potential errors
-  double sin(double radians) {
-    try {
-      return radians.sin;
-    } catch (e) {
-      print('Math error in sin: $e');
-      return 0.0;
-    }
-  }
-
-  double cos(double radians) {
-    try {
-      return radians.cos;
-    } catch (e) {
-      print('Math error in cos: $e');
-      return 0.0;
-    }
-  }
-
-  double sqrt(double value) {
-    try {
-      return value.sqrt;
-    } catch (e) {
-      print('Math error in sqrt: $e');
-      return 0.0;
-    }
-  }
-
-  double atan2(double y, double x) {
-    try {
-      return y.atan2(x);
-    } catch (e) {
-      print('Math error in atan2: $e');
-      return 0.0;
-    }
-  }
+  // Removed the redundant safe math wrappers
 
   /// Dispose of resources
   void dispose() {
